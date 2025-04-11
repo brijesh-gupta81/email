@@ -1,35 +1,44 @@
-from flask import Flask, Response, request
-import datetime
-import logging
-import base64
+from flask import Flask, request, send_file
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+import os
 
 app = Flask(__name__)
 
-# Setup logging
-logging.basicConfig(filename="tracker.log", level=logging.INFO, format="%(asctime)s - %(message)s")
+# Google Sheets setup
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+client = gspread.authorize(creds)
 
-# Base64 encoded 1x1 transparent PNG
-PIXEL_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMA"
-    "ASsJTYQAAAAASUVORK5CYII="
-)
+# Your sheet name
+SHEET_NAME = 'Email Tracker'
+
+try:
+    sheet = client.open(SHEET_NAME).sheet1
+except Exception as e:
+    print(f"Error opening sheet: {e}")
+    sheet = None
+
+@app.route('/pixel.png')
+def pixel():
+    email = request.args.get('email')
+    ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Log to Google Sheet
+    if sheet and email:
+        sheet.append_row([email, ip, user_agent, timestamp])
+        print(f"Logged: {email}, {ip}, {timestamp}")
+    else:
+        print("Missing email or Google Sheet not connected")
+
+    return send_file('static/pixel.png', mimetype='image/png')
 
 @app.route('/')
 def home():
-    return '<h2>Email Tracker is Running ✅</h2>'
-
-@app.route('/pixel')
-def pixel():
-    ip = request.remote_addr
-    user_agent = request.headers.get('User-Agent')
-    time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    # Log hit
-    logging.info(f"Pixel Hit | IP: {ip} | Time: {time} | User-Agent: {user_agent}")
-
-    # Serve 1x1 pixel image
-    pixel_data = base64.b64decode(PIXEL_BASE64)
-    return Response(pixel_data, mimetype='image/png')
+    return 'Email tracking pixel server is running!'
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
