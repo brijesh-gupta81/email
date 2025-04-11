@@ -1,35 +1,35 @@
-from flask import Flask, send_file, request
-from datetime import datetime
-import os
+from flask import Flask, Response, request
+import datetime
+import logging
+import base64
 
 app = Flask(__name__)
 
-# Ensure logs.txt exists
-if not os.path.exists("logs.txt"):
-    with open("logs.txt", "w") as f:
-        f.write("=== Email Open Logs ===\n")
+# Setup logging
+logging.basicConfig(filename="tracker.log", level=logging.INFO, format="%(asctime)s - %(message)s")
 
-@app.route("/")
+# Base64 encoded 1x1 transparent PNG
+PIXEL_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMA"
+    "ASsJTYQAAAAASUVORK5CYII="
+)
+
+@app.route('/')
 def home():
-    return "📬 Email Tracker is Live!"
+    return '<h2>Email Tracker is Running ✅</h2>'
 
-@app.route("/track/<email_id>")
-def track_email(email_id):
+@app.route('/pixel')
+def pixel():
     ip = request.remote_addr
-    user_agent = request.headers.get("User-Agent", "Unknown")
-    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user_agent = request.headers.get('User-Agent')
+    time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    log_entry = f"{time} | {email_id} opened | IP: {ip} | UA: {user_agent}\n"
-    
-    with open("logs.txt", "a") as f:
-        f.write(log_entry)
+    # Log hit
+    logging.info(f"Pixel Hit | IP: {ip} | Time: {time} | User-Agent: {user_agent}")
 
-    return send_file("static/pixel.png", mimetype="image/png")
+    # Serve 1x1 pixel image
+    pixel_data = base64.b64decode(PIXEL_BASE64)
+    return Response(pixel_data, mimetype='image/png')
 
-@app.route("/logs")
-def view_logs():
-    with open("logs.txt", "r") as f:
-        return "<pre>" + f.read() + "</pre>"
-
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
