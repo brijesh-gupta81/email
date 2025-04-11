@@ -1,48 +1,51 @@
-import time
+from flask import Flask, request
+import json
+import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from flask import Flask, request
-from datetime import datetime
-import user_agents
+from user_agents import parse as parse_user_agent
 
 app = Flask(__name__)
 
-# Google Sheet Setup
+# 1. Create credentials.json from ENV
+if not os.path.exists("credentials.json"):
+    creds_data = os.environ.get("GOOGLE_CREDS")
+    if creds_data:
+        with open("credentials.json", "w") as f:
+            f.write(creds_data)
+    else:
+        raise Exception("GOOGLE_CREDS env variable is missing!")
+
+# 2. Connect to Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
-sheet = client.open("Sonam").sheet1
 
-# Store open timestamps to calculate duration
-open_times = {}
+# 3. Open your sheet
+spreadsheet = client.open("Sonam")  # 👈 change this
+worksheet = spreadsheet.sheet1
 
-@app.route("/tracker.png")
-def tracker():
-    ip = request.remote_addr
-    user_agent_str = request.headers.get('User-Agent')
-    ua = user_agents.parse(user_agent_str)
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+@app.route('/')
+def home():
+    return "✅ Email Tracker is running!"
 
-    if ip not in open_times:
-        open_times[ip] = time.time()
-        duration = 0
-    else:
-        duration = round(time.time() - open_times[ip], 2)  # in seconds
+@app.route('/track', methods=['GET'])
+def track():
+    # 4. Get IP and User Agent
+    user_ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+    ua = parse_user_agent(user_agent)
 
-    sheet.append_row([
-        ts,
-        ip,
-        ua.browser.family + " " + ua.browser.version_string,
-        ua.os.family + " " + ua.os.version_string,
-        ua.device.family,
-        str(duration) + " sec"
-    ])
+    device_info = f"{ua.device.family}, {ua.os.family} {ua.os.version_string}, {ua.browser.family} {ua.browser.version_string}"
 
-    # Send a 1x1 transparent pixel
-    from flask import send_file
-    from io import BytesIO
-    pixel = BytesIO(b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\xff\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b")
-    return send_file(pixel, mimetype='image/gif')
+    # 5. Log to sheet
+    worksheet.append_row([user_ip, device_info])
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    # 6. Return a tiny transparent pixel (tracker image)
+    pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00' \
+            b'\xFF\xFF\xFF\x21\xF9\x04\x01\x00\x00\x00\x00\x2C\x00\x00\x00\x00' \
+            b'\x01\x00\x01\x00\x00\x02\x02\x4C\x01\x00\x3B'
+    return pixel, 200, {'Content-Type': 'image/gif'}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
